@@ -81,29 +81,27 @@ globalThis.oocChatInterceptor = async function (chat) {
     isOOCMode = false;
     updateUI();
 
-    // Only inject for Chat Completion format (array of {role, content} objects)
+    // Only works for Chat Completion format (array of {role, content} objects)
     if (chat.length > 0 && typeof chat[0] === 'object' && 'role' in chat[0]) {
-        const oocInstruction = {
-            role: 'system',
-            content: [
-                '[OOC — Out of Character]',
-                `The user is speaking to you directly, outside of the roleplay.`,
-                `You are aware of the character "${charName}" and the entire conversation history,`,
-                `but you must NOT respond as "${charName}".`,
-                `Do not use their personality, speech patterns, mannerisms, or persona.`,
-                `Respond as a helpful AI assistant. Be direct, clear, and helpful.`,
-            ].join(' '),
-        };
-
-        // Insert right before the last user message
-        let insertPos = chat.length - 1;
+        // Strip ALL system messages (character persona, preset, jailbreak, author's note, etc.)
         for (let i = chat.length - 1; i >= 0; i--) {
-            if (chat[i].role === 'user') {
-                insertPos = i;
-                break;
+            if (chat[i].role === 'system') {
+                chat.splice(i, 1);
             }
         }
-        chat.splice(insertPos, 0, oocInstruction);
+
+        // Insert a single clean OOC system prompt at the start
+        chat.unshift({
+            role: 'system',
+            content: [
+                'You are a helpful AI assistant. The user is speaking to you directly, out of character (OOC).',
+                `The conversation history below is from a roleplay with a character named "${charName}".`,
+                'Use the conversation as context if relevant, but do NOT continue the roleplay.',
+                `Do NOT write as "${charName}", do NOT use their persona, speech patterns, or mannerisms.`,
+                'Do NOT write actions, roleplay elements, or use asterisks for actions.',
+                'Simply answer the user\'s question directly and helpfully as an AI assistant.',
+            ].join(' '),
+        });
     }
 };
 
