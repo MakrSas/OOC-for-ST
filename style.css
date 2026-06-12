@@ -50,6 +50,33 @@
     letter-spacing: 0.5px;
 }
 
+/* OOC message action buttons */
+.ooc-mes-buttons {
+    display: flex;
+    justify-content: flex-end;
+    padding: 2px 4px;
+    opacity: 0;
+    transition: opacity 0.2s ease;
+}
+
+.mes.ooc-message:hover .ooc-mes-buttons {
+    opacity: 1;
+}
+
+.ooc-mes-delete {
+    cursor: pointer;
+    font-size: 0.85em;
+    padding: 4px 6px;
+    border-radius: 3px;
+    opacity: 0.5;
+    transition: opacity 0.15s ease, color 0.15s ease;
+}
+
+.ooc-mes-delete:hover {
+    opacity: 1;
+    color: #e57373;
+}
+
 /* Typing indicator */
 #ooc-typing {
     opacity: 0.6;

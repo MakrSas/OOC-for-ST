@@ -81,12 +81,43 @@ function appendMessageToDOM(text, name, index, isUser) {
                     <small class="timestamp">${timestamp}</small>
                 </div>
                 <div class="mes_text"><p>${escapeHtml(text)}</p></div>
+                <div class="ooc-mes-buttons">
+                    <div class="ooc-mes-delete fa-solid fa-trash-can" title="Удалить сообщение"></div>
+                </div>
             </div>
         </div>`;
 
     chatEl.insertAdjacentHTML('beforeend', html);
     chatEl.scrollTop = chatEl.scrollHeight;
 }
+
+function deleteOOCMessage(mesEl) {
+    const ctx = SillyTavern.getContext();
+    const mesId = parseInt(mesEl.getAttribute('mesid'));
+    if (isNaN(mesId) || !ctx.chat[mesId]) return;
+
+    ctx.chat.splice(mesId, 1);
+    mesEl.remove();
+
+    // Re-index remaining messages in the DOM
+    const chatEl = document.getElementById('chat');
+    if (chatEl) {
+        chatEl.querySelectorAll('.mes').forEach((el, i) => {
+            el.setAttribute('mesid', i);
+        });
+    }
+
+    trySaveChat();
+}
+
+// Delegate click on delete buttons (works for dynamically added messages)
+document.addEventListener('click', function (e) {
+    const deleteBtn = e.target.closest('.ooc-mes-delete');
+    if (!deleteBtn) return;
+
+    const mesEl = deleteBtn.closest('.mes');
+    if (mesEl) deleteOOCMessage(mesEl);
+});
 
 function showTyping() {
     const chatEl = document.getElementById('chat');
