@@ -49,3 +49,17 @@
     vertical-align: middle;
     letter-spacing: 0.5px;
 }
+
+/* Typing indicator */
+#ooc-typing {
+    opacity: 0.6;
+}
+
+#ooc-typing .mes_text em {
+    animation: ooc-dots 1.5s ease-in-out infinite;
+}
+
+@keyframes ooc-dots {
+    0%, 100% { opacity: 0.4; }
+    50% { opacity: 1; }
+}

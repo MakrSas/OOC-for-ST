@@ -1,12 +1,10 @@
 let isOOCMode = false;
-let pendingOOCResponse = false;
+let oocGenerating = false;
 
-function setMessageOOC(index) {
-    const { chat } = SillyTavern.getContext();
-    const msg = chat[index];
-    if (!msg) return;
-    if (!msg.extra) msg.extra = {};
-    msg.extra.isOOC = true;
+function escapeHtml(text) {
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
 }
 
 function applyOOCStyles() {
@@ -29,6 +27,7 @@ function applyOOCStyles() {
 }
 
 function toggleOOC() {
+    if (oocGenerating) return;
     isOOCMode = !isOOCMode;
     updateUI();
 }
@@ -67,100 +66,216 @@ function createButton() {
     leftForm.appendChild(btn);
 }
 
-// Generate interceptor — injected into the prompt right before the API call
-globalThis.oocChatInterceptor = async function (chat) {
-    if (!isOOCMode) return;
+function appendMessageToDOM(text, name, index, isUser) {
+    const chatEl = document.getElementById('chat');
+    if (!chatEl) return;
 
+    const timestamp = new Date().toLocaleString();
+    const html = `
+        <div class="mes ${isUser ? '' : 'char_mes'} ooc-message"
+             mesid="${index}" ch_name="${escapeHtml(name)}"
+             is_user="${isUser}" is_system="false">
+            <div class="mes_block">
+                <div class="ch_name flex-container">
+                    <div class="ch_name_text">${escapeHtml(name)}</div>
+                    <small class="timestamp">${timestamp}</small>
+                </div>
+                <div class="mes_text"><p>${escapeHtml(text)}</p></div>
+            </div>
+        </div>`;
+
+    chatEl.insertAdjacentHTML('beforeend', html);
+    chatEl.scrollTop = chatEl.scrollHeight;
+}
+
+function showTyping() {
+    const chatEl = document.getElementById('chat');
+    if (!chatEl) return;
+
+    const div = document.createElement('div');
+    div.id = 'ooc-typing';
+    div.className = 'mes char_mes ooc-message';
+    div.innerHTML = `
+        <div class="mes_block">
+            <div class="ch_name flex-container">
+                <div class="ch_name_text">OOC</div>
+            </div>
+            <div class="mes_text"><p><em>Генерация ответа...</em></p></div>
+        </div>`;
+    chatEl.appendChild(div);
+    chatEl.scrollTop = chatEl.scrollHeight;
+}
+
+function hideTyping() {
+    document.getElementById('ooc-typing')?.remove();
+}
+
+async function trySaveChat() {
     const ctx = SillyTavern.getContext();
-    const charName = ctx.characters?.[ctx.characterId]?.name || 'the character';
+    for (const fn of [ctx.saveChat, ctx.saveChatDebounced, window.saveChatDebounced, ctx.saveChatConditional]) {
+        if (typeof fn === 'function') {
+            try { await fn(); } catch {}
+            return;
+        }
+    }
+}
 
-    // Mark the last user message as OOC
-    setMessageOOC(ctx.chat.length - 1);
+async function handleOOCSend() {
+    const textarea = document.getElementById('send_textarea');
+    if (!textarea) return;
 
-    pendingOOCResponse = true;
+    const userText = textarea.value.trim();
+    if (!userText || oocGenerating) return;
+
+    textarea.value = '';
+    textarea.style.height = '';
+    textarea.dispatchEvent(new Event('input', { bubbles: true }));
+
     isOOCMode = false;
+    oocGenerating = true;
     updateUI();
 
-    // Only works for Chat Completion format (array of {role, content} objects)
-    if (chat.length > 0 && typeof chat[0] === 'object' && 'role' in chat[0]) {
-        // Strip ALL system messages (character persona, preset, jailbreak, author's note, etc.)
-        for (let i = chat.length - 1; i >= 0; i--) {
-            if (chat[i].role === 'system') {
-                chat.splice(i, 1);
-            }
+    const ctx = SillyTavern.getContext();
+    const charName = ctx.characters?.[ctx.characterId]?.name || 'Character';
+    const userName = ctx.name1 || 'User';
+
+    const userMsg = {
+        name: userName,
+        is_user: true,
+        is_system: false,
+        send_date: Date.now(),
+        mes: userText,
+        swipe_id: 0,
+        swipes: [userText],
+        extra: { isOOC: true },
+    };
+    ctx.chat.push(userMsg);
+    appendMessageToDOM(userText, userName, ctx.chat.length - 1, true);
+
+    showTyping();
+
+    const maxHistory = 30;
+    const historySlice = ctx.chat.slice(
+        Math.max(0, ctx.chat.length - 1 - maxHistory),
+        ctx.chat.length - 1,
+    );
+    const history = historySlice.map(m => {
+        const role = m.is_user ? userName : (m.extra?.isOOC && !m.is_user ? 'OOC' : charName);
+        return `${role}: ${m.mes}`;
+    }).join('\n\n');
+
+    const systemPrompt = [
+        'You are a helpful AI assistant.',
+        `The user is in a roleplay chat with a character named "${charName}".`,
+        'The user is now speaking to you directly, out of character (OOC).',
+        'Use the conversation history as context if relevant.',
+        `Do NOT roleplay as "${charName}". Do NOT use their persona, speech patterns, or mannerisms.`,
+        'Do NOT write actions, do NOT use asterisks for actions (*like this*), do NOT continue the roleplay.',
+        'Respond plainly and helpfully as an AI assistant.',
+    ].join(' ');
+
+    const prompt = history
+        ? `Conversation history:\n\n${history}\n\nUser (OOC): ${userText}`
+        : userText;
+
+    try {
+        let response;
+
+        if (typeof ctx.generateRaw === 'function') {
+            response = await ctx.generateRaw({ prompt, systemPrompt });
+        } else if (typeof ctx.generateQuietPrompt === 'function') {
+            response = await ctx.generateQuietPrompt({
+                quietPrompt: `${systemPrompt}\n\nUser: ${userText}\n\nRespond as an AI assistant, NOT as "${charName}":`,
+            });
+        } else {
+            throw new Error('Generation API not available');
         }
 
-        // Insert a single clean OOC system prompt at the start
-        chat.unshift({
-            role: 'system',
-            content: [
-                'You are a helpful AI assistant. The user is speaking to you directly, out of character (OOC).',
-                `The conversation history below is from a roleplay with a character named "${charName}".`,
-                'Use the conversation as context if relevant, but do NOT continue the roleplay.',
-                `Do NOT write as "${charName}", do NOT use their persona, speech patterns, or mannerisms.`,
-                'Do NOT write actions, roleplay elements, or use asterisks for actions.',
-                'Simply answer the user\'s question directly and helpfully as an AI assistant.',
-            ].join(' '),
-        });
-    }
-};
+        hideTyping();
 
-// Extension initialization
+        const trimmed = (response || '').trim();
+        if (!trimmed) throw new Error('Empty response from model');
+
+        const oocMsg = {
+            name: 'OOC',
+            is_user: false,
+            is_system: false,
+            send_date: Date.now(),
+            mes: trimmed,
+            swipe_id: 0,
+            swipes: [trimmed],
+            extra: { isOOC: true },
+        };
+        ctx.chat.push(oocMsg);
+        appendMessageToDOM(trimmed, 'OOC', ctx.chat.length - 1, false);
+
+        await trySaveChat();
+    } catch (err) {
+        hideTyping();
+        console.error('[OOC Chat] Generation failed:', err);
+        if (typeof toastr !== 'undefined') {
+            toastr.error(`OOC: ошибка генерации — ${err.message}`);
+        }
+    } finally {
+        oocGenerating = false;
+    }
+}
+
+function setupSendInterception() {
+    const sendBut = document.getElementById('send_but');
+    const textarea = document.getElementById('send_textarea');
+
+    if (sendBut) {
+        sendBut.addEventListener('click', function (e) {
+            if (!isOOCMode) return;
+            e.stopPropagation();
+            e.stopImmediatePropagation();
+            e.preventDefault();
+            handleOOCSend();
+        }, true);
+    }
+
+    if (textarea) {
+        textarea.addEventListener('keydown', function (e) {
+            if (!isOOCMode) return;
+            if (e.key !== 'Enter' || e.shiftKey) return;
+            e.stopPropagation();
+            e.stopImmediatePropagation();
+            e.preventDefault();
+            handleOOCSend();
+        }, true);
+    }
+}
+
 (function init() {
     const { eventSource, event_types } = SillyTavern.getContext();
 
     createButton();
+    setupSendInterception();
 
-    // Mark AI response as OOC when generation completes
-    eventSource.on(event_types.MESSAGE_RECEIVED, () => {
-        if (!pendingOOCResponse) return;
-
-        const { chat } = SillyTavern.getContext();
-        if (chat.length > 0) {
-            setMessageOOC(chat.length - 1);
+    for (const evtName of ['CHARACTER_MESSAGE_RENDERED', 'USER_MESSAGE_RENDERED', 'CHAT_CHANGED']) {
+        if (event_types[evtName]) {
+            eventSource.on(event_types[evtName], () => setTimeout(applyOOCStyles, 50));
         }
-        pendingOOCResponse = false;
-    });
-
-    // Safety reset if generation ends without MESSAGE_RECEIVED (e.g. error/abort)
-    if (event_types.GENERATION_ENDED) {
-        eventSource.on(event_types.GENERATION_ENDED, () => {
-            pendingOOCResponse = false;
-        });
     }
 
-    // Apply visual styles when messages render
-    eventSource.on(event_types.CHARACTER_MESSAGE_RENDERED, () => {
-        setTimeout(applyOOCStyles, 50);
-    });
-
-    if (event_types.USER_MESSAGE_RENDERED) {
-        eventSource.on(event_types.USER_MESSAGE_RENDERED, () => {
-            setTimeout(applyOOCStyles, 50);
-        });
-    }
-
-    // Re-apply styles and reset mode on chat switch
     eventSource.on(event_types.CHAT_CHANGED, () => {
         isOOCMode = false;
-        pendingOOCResponse = false;
+        oocGenerating = false;
         updateUI();
-        setTimeout(applyOOCStyles, 150);
     });
 
     setTimeout(applyOOCStyles, 300);
 })();
 
-// Cleanup when extension is disabled via ST UI
 export function onDisable() {
     isOOCMode = false;
-    pendingOOCResponse = false;
+    oocGenerating = false;
 
-    const btn = document.getElementById('ooc_chat_button');
-    if (btn) btn.remove();
-
+    document.getElementById('ooc_chat_button')?.remove();
     document.querySelectorAll('.ooc-message').forEach(el => el.classList.remove('ooc-message'));
     document.getElementById('send_form')?.classList.remove('ooc-mode-active');
+    hideTyping();
 
     const textarea = document.getElementById('send_textarea');
     if (textarea) {

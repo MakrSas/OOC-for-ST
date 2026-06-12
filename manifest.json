@@ -8,6 +8,5 @@
     "author": "Makr",
     "version": "1.0.0",
     "homePage": "",
-    "auto_update": true,
-    "generate_interceptor": "oocChatInterceptor"
+    "auto_update": true
 }
