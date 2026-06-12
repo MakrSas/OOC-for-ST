@@ -1,0 +1,51 @@
+/* OOC Chat Extension Styles */
+
+/* Button in leftSendForm */
+#ooc_chat_button {
+    cursor: pointer;
+    font-size: 1.1em;
+    padding: 3px;
+    transition: color 0.25s ease, text-shadow 0.25s ease, opacity 0.25s ease;
+    opacity: 0.6;
+}
+
+#ooc_chat_button:hover {
+    opacity: 1;
+}
+
+#ooc_chat_button.ooc-active {
+    color: #4fc3f7;
+    text-shadow: 0 0 10px rgba(79, 195, 247, 0.7);
+    opacity: 1;
+    animation: ooc-pulse 2s ease-in-out infinite;
+}
+
+@keyframes ooc-pulse {
+    0%, 100% { text-shadow: 0 0 8px rgba(79, 195, 247, 0.5); }
+    50% { text-shadow: 0 0 16px rgba(79, 195, 247, 0.9); }
+}
+
+/* Textarea highlight when OOC mode is active */
+#send_form.ooc-mode-active #send_textarea {
+    border-color: rgba(79, 195, 247, 0.6) !important;
+    box-shadow: inset 0 0 6px rgba(79, 195, 247, 0.15);
+}
+
+/* OOC message styling */
+.mes.ooc-message {
+    border-left: 3px solid #4fc3f7 !important;
+}
+
+.mes.ooc-message .mes_text::before {
+    content: "OOC";
+    display: inline-block;
+    background: #4fc3f7;
+    color: #1a1a1a;
+    font-size: 0.65em;
+    font-weight: 700;
+    padding: 1px 6px;
+    border-radius: 3px;
+    margin-right: 6px;
+    vertical-align: middle;
+    letter-spacing: 0.5px;
+}
